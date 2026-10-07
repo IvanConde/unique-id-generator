@@ -14,10 +14,20 @@ public sealed class SnowflakeIdGenerator
     private const long MaxTimestamp = (1L << TimestampBits) - 1;
     private const int MaxDatacenterId = (1 << DatacenterIdBits) - 1;
     private const int MaxMachineId = (1 << MachineIdBits) - 1;
+    private const long MaxSequence = (1L << SequenceBits) - 1;
+
+    private const int MachineIdShift = SequenceBits;
+    private const int DatacenterIdShift = MachineIdShift + MachineIdBits;
+    private const int TimestampShift = DatacenterIdShift + DatacenterIdBits;
 
     private static readonly long EpochMilliseconds = Epoch.ToUnixTimeMilliseconds();
 
     private readonly TimeProvider _timeProvider;
+    private readonly long _nodeBits;
+    private readonly Lock _lock = new();
+
+    private long _lastTimestamp = -1;
+    private long _sequence;
 
     public SnowflakeIdGenerator(SnowflakeOptions options, TimeProvider timeProvider)
     {
@@ -26,6 +36,7 @@ public sealed class SnowflakeIdGenerator
 
         DatacenterId = RequireInRange(options.DatacenterId, MaxDatacenterId, nameof(options.DatacenterId));
         MachineId = RequireInRange(options.MachineId, MaxMachineId, nameof(options.MachineId));
+        _nodeBits = ((long)DatacenterId << DatacenterIdShift) | ((long)MachineId << MachineIdShift);
         _timeProvider = timeProvider;
 
         // Fail at startup, not on the first request, if the clock is outside the representable range.
@@ -34,6 +45,53 @@ public sealed class SnowflakeIdGenerator
 
     public int DatacenterId { get; }
     public int MachineId { get; }
+
+    public long NextId()
+    {
+        lock (_lock)
+        {
+            var timestamp = ReadTimestamp();
+
+            if (timestamp < _lastTimestamp)
+            {
+                throw new ClockMovedBackwardsException(_lastTimestamp - timestamp);
+            }
+
+            long sequence = 0;
+            if (timestamp == _lastTimestamp)
+            {
+                sequence = (_sequence + 1) & MaxSequence;
+                if (sequence == 0)
+                {
+                    timestamp = WaitForNextMillisecond(_lastTimestamp);
+                }
+            }
+
+            // State is committed only once the ID is fully determined: if anything above throws,
+            // the generator keeps its previous state and cannot reissue an already used sequence.
+            _lastTimestamp = timestamp;
+            _sequence = sequence;
+
+            return (timestamp << TimestampShift) | _nodeBits | sequence;
+        }
+    }
+
+    // Busy-waits on purpose: the wait is under 1 ms, and Thread. Sleep can oversleep by several ms so it's not used.
+    private long WaitForNextMillisecond(long lastTimestamp)
+    {
+        long timestamp;
+        do
+        {
+            timestamp = ReadTimestamp();
+            if (timestamp < lastTimestamp)
+            {
+                throw new ClockMovedBackwardsException(lastTimestamp - timestamp);
+            }
+        }
+        while (timestamp == lastTimestamp);
+
+        return timestamp;
+    }
 
     private long ReadTimestamp()
     {

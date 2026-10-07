@@ -5,5 +5,13 @@ internal sealed class ManualTimeProvider(DateTimeOffset start) : TimeProvider
 {
     public DateTimeOffset Now { get; set; } = start;
 
-    public override DateTimeOffset GetUtcNow() => Now;
+    // Added to Now after every read, so a generator waiting for the next millisecond can make progress.
+    public TimeSpan AutoAdvance { get; set; }
+
+    public override DateTimeOffset GetUtcNow()
+    {
+        var now = Now;
+        Now += AutoAdvance;
+        return now;
+    }
 }
