@@ -100,3 +100,18 @@ dotnet run --project src/UniqueIdGenerator.Api --no-launch-profile
 ```
 
 Without a launch profile the API listens on `http://localhost:5000`. On startup it logs the node identity (`ID generator started for datacenter 1, machine 2.`). If the identity is missing or out of range, the process exits with an error.
+
+## Docker
+
+From this folder:
+
+```bash
+docker build -t unique-id-generator .
+docker run --rm -p 8080:8080 -e Snowflake__DatacenterId=1 -e Snowflake__MachineId=2 unique-id-generator
+```
+
+```bash
+curl -X POST http://localhost:8080/ids
+```
+
+The container runs in the `Production` environment, as a non-root user, and listens on port 8080. The node identity must be passed as environment variables, and Swagger is not available.

@@ -162,15 +162,15 @@ public class SnowflakeIdGeneratorTests
     }
 
     [Theory]
-    [InlineData(1, 1, 1, 2)]  // differ only in machine
-    [InlineData(1, 1, 2, 1)]  // differ only in datacenter
+    [InlineData(1, 1, 1, 2)]
+    [InlineData(1, 1, 2, 1)]
     [InlineData(0, 16, 1, 0)] // only the highest machine bit vs only the lowest datacenter bit: adjacent bits
     public void Should_NotCollide_When_TwoNodesGenerateInTheSameMillisecond(int datacenterA, int machineA, int datacenterB, int machineB)
     {
         var (nodeA, _) = CreateGeneratorWithClock(datacenterA, machineA);
         var (nodeB, _) = CreateGeneratorWithClock(datacenterB, machineB);
 
-        // Same millisecond and every sequence on both nodes: only the node bits can tell the IDs apart.
+        // Only the node bits can tell the IDs apart.
         var idsA = Enumerable.Range(0, SequencesPerMillisecond).Select(_ => nodeA.NextId()).ToHashSet();
         var idsB = Enumerable.Range(0, SequencesPerMillisecond).Select(_ => nodeB.NextId()).ToHashSet();
 

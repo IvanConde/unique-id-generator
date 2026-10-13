@@ -20,7 +20,7 @@ The requirements are the ones from the book, taken as given:
 
 **In scope:** the generator as a library (`UniqueIdGenerator.Core`), decoding of IDs, and a thin HTTP API.
 
-**Out of scope:** automatic node ID assignment, persisting the last issued timestamp, tolerance for small clock jumps, Docker, metrics and benchmarks (see 6).
+**Out of scope:** automatic node ID assignment, persisting the last issued timestamp, tolerance for small clock jumps, metrics and benchmarks (see 6).
 
 ## 3. Options considered
 
@@ -112,6 +112,7 @@ Failing on any backward jump is preferred over generating a possible duplicate.
 - **Clock monitoring.** Keep NTP running and alert on its offset. The warning logged on every `ClockMovedBackwardsException` and the rate of `503` responses are signals to watch.
 - **Restart safety.** Persist the last issued timestamp and refuse to start if the clock is behind it, or wait at startup for longer than the maximum expected backward jump.
 - **Deployment model.** The intended use is the library embedded in each service. A central ID service over HTTP adds a network hop and a dependency to every ID.
+- **Defensive design.** The service has no outgoing dependencies (no database, no other services), so timeouts, connection pools and circuit breakers do not apply. The defensive measures it does have: a maximum batch size, configuration validated at startup, IDs refused with `503` + `Retry-After` when the clock moves backwards, and `500` responses without internal details.
 
 ## 7. Testing strategy
 
