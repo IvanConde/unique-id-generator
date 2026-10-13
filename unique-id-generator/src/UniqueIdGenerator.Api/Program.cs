@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using UniqueIdGenerator.Api;
 using UniqueIdGenerator.Core;
@@ -6,6 +7,9 @@ using UniqueIdGenerator.Core;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddProblemDetails();
+builder.Services.AddOpenApi();
+// The web defaults accept numbers written as strings, so OpenAPI would document every int as "integer or string".
+builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict);
 builder.Services.AddExceptionHandler<ClockMovedBackwardsExceptionHandler>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(services =>
@@ -39,9 +43,22 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
 });
 app.UseStatusCodePages();
 
-app.MapPost("/ids", () => new IdResponse(Format(generator.NextId())));
+// The API contract is browsable only while developing; production does not advertise its endpoints.
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+    app.UseSwaggerUI(options => options.SwaggerEndpoint("/openapi/v1.json", "Unique ID Generator API"));
+}
 
-app.MapPost("/ids/batch", Results<Ok<IdBatchResponse>, ProblemHttpResult> (int count) =>
+var idRoutes = app.MapGroup("/ids")
+    .WithTags("IDs")
+    .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+idRoutes.MapPost("", () => new IdResponse(Format(generator.NextId())))
+    .WithSummary("Generates one ID.")
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+idRoutes.MapPost("/batch", Results<Ok<IdBatchResponse>, ProblemHttpResult> (int count) =>
 {
     if (count < 1 || count > maxBatchSize)
     {
@@ -58,9 +75,12 @@ app.MapPost("/ids/batch", Results<Ok<IdBatchResponse>, ProblemHttpResult> (int c
     }
 
     return TypedResults.Ok(new IdBatchResponse(ids));
-});
+})
+.WithSummary("Generates a batch of IDs.")
+.ProducesProblem(StatusCodes.Status400BadRequest)
+.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
-app.MapGet("/ids/{id}", Results<Ok<DecodedIdResponse>, ProblemHttpResult> (string id) =>
+idRoutes.MapGet("/{id}", Results<Ok<DecodedIdResponse>, ProblemHttpResult> (string id) =>
 {
     // NumberStyles.None rejects signs, spaces and separators: only plain digits are valid IDs.
     if (!long.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out var value))
@@ -74,7 +94,9 @@ app.MapGet("/ids/{id}", Results<Ok<DecodedIdResponse>, ProblemHttpResult> (strin
     var decoded = SnowflakeId.Decode(value);
     return TypedResults.Ok(new DecodedIdResponse(
         Format(decoded.Value), decoded.Timestamp, decoded.DatacenterId, decoded.MachineId, decoded.Sequence));
-});
+})
+.WithSummary("Decodes an ID into its timestamp, node and sequence.")
+.ProducesProblem(StatusCodes.Status400BadRequest);
 
 app.Run();
 
