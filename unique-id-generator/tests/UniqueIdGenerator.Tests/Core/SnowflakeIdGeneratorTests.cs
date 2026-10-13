@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using UniqueIdGenerator.Core;
 
 namespace UniqueIdGenerator.Tests.Core;
@@ -24,6 +25,18 @@ public class SnowflakeIdGeneratorTests
     // Independent of the production code on purpose: if the layout changes by mistake, these tests fail.
     private static long ExpectedId(long timestamp, int datacenterId, int machineId, long sequence) =>
         (timestamp << 22) | ((long)datacenterId << 17) | ((long)machineId << 12) | sequence;
+
+    private static bool IsStrictlyIncreasing(long[] ids)
+    {
+        for (var i = 1; i < ids.Length; i++)
+        {
+            if (ids[i] <= ids[i - 1])
+            {
+                return false;
+            }
+        }
+        return true;
+    }
 
     private static void ExhaustSequence(SnowflakeIdGenerator generator)
     {
@@ -107,6 +120,63 @@ public class SnowflakeIdGeneratorTests
         Assert.True(next > last);
         // Same millisecond as the last ID, next sequence: the failed call did not consume a sequence.
         Assert.Equal(ExpectedId(StartTimestamp, 1, 1, 1), next);
+    }
+
+    [Fact]
+    public void Should_GenerateUniqueIncreasingIds_When_CalledFromManyThreads()
+    {
+        const int threadCount = 8;
+        const int idsPerThread = 50_000;
+        var generator = new SnowflakeIdGenerator(new SnowflakeOptions { DatacenterId = 1, MachineId = 1 }, TimeProvider.System);
+        var results = new long[threadCount][];
+        var errors = new ConcurrentQueue<Exception>();
+        using var startGate = new Barrier(threadCount);
+
+        // Dedicated threads, not Parallel.For: the thread pool may run fewer threads than
+        // the barrier expects, and the barrier would then wait forever.
+        var threads = Enumerable.Range(0, threadCount).Select(index => new Thread(() =>
+        {
+            var ids = new long[idsPerThread];
+            startGate.SignalAndWait();
+            try
+            {
+                for (var i = 0; i < idsPerThread; i++)
+                {
+                    ids[i] = generator.NextId();
+                }
+                results[index] = ids;
+            }
+            catch (Exception exception)
+            {
+                // An unhandled exception on a dedicated thread would crash the test host instead of failing the test.
+                errors.Enqueue(exception);
+            }
+        })).ToList();
+
+        threads.ForEach(thread => thread.Start());
+        threads.ForEach(thread => thread.Join());
+
+        Assert.Empty(errors);
+        Assert.Equal(threadCount * idsPerThread, results.SelectMany(ids => ids).Distinct().Count());
+        Assert.All(results, ids => Assert.True(IsStrictlyIncreasing(ids)));
+    }
+
+    [Theory]
+    [InlineData(1, 1, 1, 2)]  // differ only in machine
+    [InlineData(1, 1, 2, 1)]  // differ only in datacenter
+    [InlineData(0, 16, 1, 0)] // only the highest machine bit vs only the lowest datacenter bit: adjacent bits
+    public void Should_NotCollide_When_TwoNodesGenerateInTheSameMillisecond(int datacenterA, int machineA, int datacenterB, int machineB)
+    {
+        var (nodeA, _) = CreateGeneratorWithClock(datacenterA, machineA);
+        var (nodeB, _) = CreateGeneratorWithClock(datacenterB, machineB);
+
+        // Same millisecond and every sequence on both nodes: only the node bits can tell the IDs apart.
+        var idsA = Enumerable.Range(0, SequencesPerMillisecond).Select(_ => nodeA.NextId()).ToHashSet();
+        var idsB = Enumerable.Range(0, SequencesPerMillisecond).Select(_ => nodeB.NextId()).ToHashSet();
+
+        Assert.Equal(SequencesPerMillisecond, idsA.Count);
+        Assert.Equal(SequencesPerMillisecond, idsB.Count);
+        Assert.Empty(idsA.Intersect(idsB));
     }
 
     [Fact]
