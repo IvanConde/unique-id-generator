@@ -32,7 +32,7 @@ dotnet test
 dotnet run --project src/UniqueIdGenerator.Api
 ```
 
-It runs in the `Development` environment, listens on `http://localhost:5176` and opens Swagger in the browser.
+It runs in the `Development` environment and listens on `http://localhost:5176`. Open **http://localhost:5176/swagger** in the browser. (Visual Studio, Rider and VS Code open it automatically; from the terminal, `dotnet watch --project src/UniqueIdGenerator.Api` also does.)
 
 ### Swagger
 
