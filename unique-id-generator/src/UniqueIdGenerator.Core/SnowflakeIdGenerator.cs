@@ -2,26 +2,6 @@ namespace UniqueIdGenerator.Core;
 
 public sealed class SnowflakeIdGenerator
 {
-    // The epoch and the bit layout define the ID format. Changing them once IDs
-    // have been issued breaks ordering and can produce duplicates.
-    public static readonly DateTimeOffset Epoch = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-
-    private const int TimestampBits = 41;
-    private const int DatacenterIdBits = 5;
-    private const int MachineIdBits = 5;
-    private const int SequenceBits = 12;
-
-    private const long MaxTimestamp = (1L << TimestampBits) - 1;
-    private const int MaxDatacenterId = (1 << DatacenterIdBits) - 1;
-    private const int MaxMachineId = (1 << MachineIdBits) - 1;
-    private const long MaxSequence = (1L << SequenceBits) - 1;
-
-    private const int MachineIdShift = SequenceBits;
-    private const int DatacenterIdShift = MachineIdShift + MachineIdBits;
-    private const int TimestampShift = DatacenterIdShift + DatacenterIdBits;
-
-    private static readonly long EpochMilliseconds = Epoch.ToUnixTimeMilliseconds();
-
     private readonly TimeProvider _timeProvider;
     private readonly long _nodeBits;
     private readonly Lock _lock = new();
@@ -34,9 +14,9 @@ public sealed class SnowflakeIdGenerator
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
 
-        DatacenterId = RequireInRange(options.DatacenterId, MaxDatacenterId, nameof(options.DatacenterId));
-        MachineId = RequireInRange(options.MachineId, MaxMachineId, nameof(options.MachineId));
-        _nodeBits = ((long)DatacenterId << DatacenterIdShift) | ((long)MachineId << MachineIdShift);
+        DatacenterId = RequireInRange(options.DatacenterId, SnowflakeId.MaxDatacenterId, nameof(options.DatacenterId));
+        MachineId = RequireInRange(options.MachineId, SnowflakeId.MaxMachineId, nameof(options.MachineId));
+        _nodeBits = ((long)DatacenterId << SnowflakeId.DatacenterIdShift) | ((long)MachineId << SnowflakeId.MachineIdShift);
         _timeProvider = timeProvider;
 
         // Fail at startup, not on the first request, if the clock is outside the representable range.
@@ -60,7 +40,7 @@ public sealed class SnowflakeIdGenerator
             long sequence = 0;
             if (timestamp == _lastTimestamp)
             {
-                sequence = (_sequence + 1) & MaxSequence;
+                sequence = (_sequence + 1) & SnowflakeId.MaxSequence;
                 if (sequence == 0)
                 {
                     timestamp = WaitForNextMillisecond(_lastTimestamp);
@@ -72,11 +52,11 @@ public sealed class SnowflakeIdGenerator
             _lastTimestamp = timestamp;
             _sequence = sequence;
 
-            return (timestamp << TimestampShift) | _nodeBits | sequence;
+            return (timestamp << SnowflakeId.TimestampShift) | _nodeBits | sequence;
         }
     }
 
-    // Busy-waits on purpose: the wait is under 1 ms, and Thread. Sleep can oversleep by several ms so it's not used.
+    // Busy-waits on purpose: the wait is under 1 ms, and Thread.Sleep can oversleep by several ms so it's not used.
     private long WaitForNextMillisecond(long lastTimestamp)
     {
         long timestamp;
@@ -96,18 +76,18 @@ public sealed class SnowflakeIdGenerator
     private long ReadTimestamp()
     {
         var now = _timeProvider.GetUtcNow();
-        var timestamp = now.ToUnixTimeMilliseconds() - EpochMilliseconds;
+        var timestamp = now.ToUnixTimeMilliseconds() - SnowflakeId.EpochMilliseconds;
 
         if (timestamp < 0)
         {
             throw new InvalidOperationException(
-                $"The clock ({now:O}) is before the epoch ({Epoch:O}).");
+                $"The clock ({now:O}) is before the epoch ({SnowflakeId.Epoch:O}).");
         }
 
-        if (timestamp > MaxTimestamp)
+        if (timestamp > SnowflakeId.MaxTimestamp)
         {
             throw new InvalidOperationException(
-                $"The clock ({now:O}) is past the last representable timestamp ({Epoch.AddMilliseconds(MaxTimestamp):O}).");
+                $"The clock ({now:O}) is past the last representable timestamp ({SnowflakeId.Epoch.AddMilliseconds(SnowflakeId.MaxTimestamp):O}).");
         }
 
         return timestamp;

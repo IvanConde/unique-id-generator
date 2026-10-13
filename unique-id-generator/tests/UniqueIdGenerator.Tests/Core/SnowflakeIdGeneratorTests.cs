@@ -9,7 +9,7 @@ public class SnowflakeIdGeneratorTests
     private const int SequencesPerMillisecond = 1 << 12;
     private const long StartTimestamp = 86_400_000; // one day after the epoch
 
-    private static readonly DateTimeOffset AfterEpoch = SnowflakeIdGenerator.Epoch.AddMilliseconds(StartTimestamp);
+    private static readonly DateTimeOffset AfterEpoch = SnowflakeId.Epoch.AddMilliseconds(StartTimestamp);
 
     private static SnowflakeIdGenerator CreateGenerator(int? datacenterId = 1, int? machineId = 1, DateTimeOffset? now = null) =>
         new(new SnowflakeOptions { DatacenterId = datacenterId, MachineId = machineId },
@@ -260,7 +260,7 @@ public class SnowflakeIdGeneratorTests
     [Fact]
     public void Should_Accept_When_ClockIsAtEpoch()
     {
-        var exception = Record.Exception(() => CreateGenerator(now: SnowflakeIdGenerator.Epoch));
+        var exception = Record.Exception(() => CreateGenerator(now: SnowflakeId.Epoch));
 
         Assert.Null(exception);
     }
@@ -268,7 +268,7 @@ public class SnowflakeIdGeneratorTests
     [Fact]
     public void Should_Accept_When_ClockIsAtLastRepresentableMillisecond()
     {
-        var exception = Record.Exception(() => CreateGenerator(now: SnowflakeIdGenerator.Epoch.AddMilliseconds(MaxTimestamp)));
+        var exception = Record.Exception(() => CreateGenerator(now: SnowflakeId.Epoch.AddMilliseconds(MaxTimestamp)));
 
         Assert.Null(exception);
     }
@@ -276,12 +276,12 @@ public class SnowflakeIdGeneratorTests
     [Fact]
     public void Should_Throw_When_ClockIsBeforeEpoch()
     {
-        Assert.Throws<InvalidOperationException>(() => CreateGenerator(now: SnowflakeIdGenerator.Epoch.AddMilliseconds(-1)));
+        Assert.Throws<InvalidOperationException>(() => CreateGenerator(now: SnowflakeId.Epoch.AddMilliseconds(-1)));
     }
 
     [Fact]
     public void Should_Throw_When_ClockIsPastTimestampRange()
     {
-        Assert.Throws<InvalidOperationException>(() => CreateGenerator(now: SnowflakeIdGenerator.Epoch.AddMilliseconds(MaxTimestamp + 1)));
+        Assert.Throws<InvalidOperationException>(() => CreateGenerator(now: SnowflakeId.Epoch.AddMilliseconds(MaxTimestamp + 1)));
     }
 }
